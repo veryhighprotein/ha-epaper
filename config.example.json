@@ -1,0 +1,13 @@
+{
+  "title": "Home",
+  "font_size": "24px",
+  "refresh_minutes": 30,
+  "weather": "weather.home",
+  "sensors": [
+    { "name": "Bedroom", "temperature": "sensor.bedroom_temperature", "humidity": "sensor.bedroom_humidity" },
+    { "name": "Garden", "temperature": "sensor.garden_temperature", "humidity": "sensor.garden_humidity" }
+  ],
+  "calendars": [
+    "calendar.family"
+  ]
+}
