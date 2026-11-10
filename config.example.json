@@ -2,6 +2,8 @@
   "title": "Home",
   "font_size": "24px",
   "refresh_minutes": 30,
+  "calendar_days": 7,
+  "forecast_days": 7,
   "weather": "weather.home",
   "sensors": [
     { "name": "Bedroom", "temperature": "sensor.bedroom_temperature", "humidity": "sensor.bedroom_humidity" },
