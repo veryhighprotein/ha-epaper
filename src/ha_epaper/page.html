@@ -6,56 +6,188 @@
   <meta http-equiv="refresh" content="{{ refresh_seconds }}">
   <title>{{ config.title }}</title>
   <style>
-    body { font-family: sans-serif; font-size: {{ config.font_size }}; color: #000; background: #fff; margin: 0.3em; }
-    h1 { font-size: 1.1em; margin: 0 0 0.2em; }
-    h2 { font-size: 0.9em; margin: 0.6em 0 0.1em; }
-    table { border-collapse: collapse; width: 100%; }
-    td { text-align: left; padding: 0.05em 0.3em; }
-    .updated { font-size: 0.6em; margin-top: 0.6em; }
+    /* monochrome, em-scaled, legacy-safe: no flexbox, grid, gap, custom properties or media queries */
+    html, body { height: 100%; }
+    body { font-family: sans-serif; font-size: {{ config.font_size }}; color: #000; background: #fff; margin: 0; }
+    /* border-box makes min-height include the padding, so the wrap is exactly one screen tall */
+    .wrap { max-width: {{ config.max_width | default('40em') }}; margin: 0 auto; padding: 0.6em 0.5% 2.4em;
+            -webkit-box-sizing: border-box; box-sizing: border-box; min-height: 100%;
+            position: relative; }
+
+    .head { border-bottom: 1px solid #000; padding-bottom: 0.35em; }
+    /* one size and line box for both, so the floated date sits on the title's centre */
+    .head .title, .head .date { font-size: 1.05em; line-height: 1.2em; }
+    .head .date { float: right; letter-spacing: 0.06em; }
+
+    .label { font-size: 0.6em; text-transform: uppercase; letter-spacing: 0.14em; margin: 0.7em 0 0.2em; }
+
+    /* weather hero: temp over condition on the left, hi/lo centred, rh and pop right */
+    .hero { border: 1px solid #000; -webkit-border-radius: 3px; border-radius: 3px; padding: 0.28em 0.55em; margin-top: 0.6em; }
+    .hero .now { display: inline-block; vertical-align: middle; width: 32%; min-width: 7.5em; }
+    .hero .temp { font-size: 1.85em; line-height: 1.05; }
+    .hero .cond { font-size: 0.68em; text-transform: uppercase; letter-spacing: 0.1em; }
+    .hero .range { display: inline-block; vertical-align: middle; text-align: center; width: 26%; min-width: 7em; }
+    .hero .stat { display: inline-block; vertical-align: middle; text-align: right; width: 16%; min-width: 5em; }
+
+    /* boxes: width is set per row in the template, so a row always fills the measure
+       whatever its count; min-width makes them wrap onto more rows without media queries */
+    .box { display: inline-block; vertical-align: top; margin: 0 0.5% 0.3em 0.5%;
+           -webkit-box-sizing: border-box; box-sizing: border-box;
+           border: 1px solid #000; -webkit-border-radius: 3px; border-radius: 3px; padding: 0.2em 0.4em; }
+    .box.room { min-width: 8em; }
+    .box.fday { min-width: 5.8em; }
+    .box .k { font-size: 0.55em; text-transform: uppercase; letter-spacing: 0.08em; }
+    /* overflow hidden contains the right-floated pop without a clearfix */
+    .box .c { font-size: 0.78em; overflow: hidden; }
+    .box .pop { float: right; font-size: 0.6em; }
+    .box .v { font-size: 0.95em; }
+    .box.fday .v { font-size: 0.82em; }
+    .box .sub { font-size: 0.6em; }
+
+    /* calendar: inverted day bar, all-day events chained inline, timed events as aligned rows */
+    .day { border: 1px solid #000; -webkit-border-radius: 3px; border-radius: 3px; margin: 0 0 0.3em; overflow: hidden; }
+    .day .bar { background: #000; color: #fff; font-size: 0.5em; text-transform: uppercase; letter-spacing: 0.12em; padding: 0.08em 0.4em; }
+    .day .body { padding: 0.1em 0.4em; }
+    .day .all { font-size: 0.78em; }
+    table.ev { border-collapse: collapse; width: 100%; }
+    table.ev td { text-align: left; vertical-align: top; font-size: 0.78em; padding: 0.02em 0; }
+    table.ev td.tm { width: 2.8em; }
+    .more { font-size: 0.6em; letter-spacing: 0.06em; }
+
+    /* every block shares the boxes' 0.5% outer margin, so all rows have one left and right edge */
+    .head, .hero, .day, .label, .more { margin-left: 0.5%; margin-right: 0.5%; }
+
+    /* absolute, not fixed: Android 2.x WebKit treats position: fixed as static */
+    .updated { position: absolute; bottom: 0.6em; left: 1%; right: 1%; font-size: 0.6em; border-top: 1px solid #000; padding-top: 0.35em; margin: 0; }
   </style>
 </head>
 <body>
-  <h1>{{ config.title }} — {{ now.strftime("%A, %d %B %Y") }}</h1>
+  {# HA weather condition enum -> human wording #}
+  {% set cond = {
+    'sunny': 'Sunny', 'clear-night': 'Clear night', 'partlycloudy': 'Partly cloudy',
+    'cloudy': 'Cloudy', 'foggy': 'Foggy', 'rainy': 'Rainy', 'pouring': 'Heavy rain',
+    'snowy': 'Snowy', 'snowy-rainy': 'Snow / rain', 'hail': 'Hail',
+    'lightning': 'Stormy', 'windy': 'Windy', 'windy-variant': 'Windy', 'exceptional': 'Exceptional'
+  } %}
 
-  {% if forecast %}
-    <h2>Weather</h2>
-    <table>
-      {% for day in forecast %}
-        <tr>
-          <td>{{ day.datetime | dayfmt }}</td>
-          <td>{{ day.condition }}</td>
-          <td>{{ day.temperature }}° / {{ day.templow }}°</td>
-          <td>{{ day.precipitation_probability }}%</td>
-        </tr>
+  {# ISO date -> "Fri 13 Nov", matching the header. dayfmt supplies the weekday #}
+  {% set months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] %}
+  {% macro datefmt(d) -%}
+    {%- set p = d.split('-') -%}
+    {{ (d | dayfmt)[:3] }} {{ p[2] | int }} {{ months[p[1] | int - 1] }}
+  {%- endmacro %}
+
+  {# width of a box in a row of at most max_per. A single row fills the measure;
+     a partial row after a full one keeps the full-row unit width instead of stretching #}
+  {% macro width(total, index0, max_per) -%}
+    {%- set per = [total, max_per] | min -%}
+    {%- set n = [per, total - (index0 // per) * per] | min -%}
+    {%- if total > max_per and n < per %}{%- set n = per %}{% endif -%}
+    {{ (100 / n - 1) | round(3) }}%
+  {%- endmacro %}
+
+  {# group events chronologically by day #}
+  {% set days = namespace(list=[]) %}
+  {% for event in events %}
+    {% set key = (event.start.dateTime or event.start.date)[:10] %}
+    {% if days.list and days.list[-1].date == key %}
+      {% set _ = days.list[-1].events.append(event) %}
+    {% else %}
+      {% set _ = days.list.append({'date': key, 'events': [event]}) %}
+    {% endif %}
+  {% endfor %}
+
+  <div class="wrap">
+    <div class="head">
+      <span class="date">{{ now.strftime("%a %d %b %Y") }}</span>
+      <span class="title">{{ config.title }}</span>
+    </div>
+
+    {% if forecast %}
+      {% set weather = states.get(config.weather) %}
+      {% set attrs = weather.attributes if weather else {} %}
+      {# integrations differ on the attribute name for the observed temperature #}
+      {% set current = attrs.get('current_temperature') or attrs.get('current_temp') or attrs.get('temperature') %}
+      {% set humidity = attrs.get('humidity') %}
+      {% set unit = attrs.get('temperature_unit') or '°' %}
+      <div class="hero">
+        <div class="now">
+          <div class="temp">{{ current if current is not none else forecast[0].temperature }}{{ unit }}</div>
+          <div class="cond">{{ cond.get(weather.state, weather.state) if weather else cond.get(forecast[0].condition, forecast[0].condition) }}</div>
+        </div>
+        <div class="range">{{ forecast[0].temperature }}{{ unit }} / {{ forecast[0].templow }}{{ unit }}</div>
+        {% if humidity is not none %}<div class="stat">{{ humidity }}% rh</div>{% endif %}
+        {% if forecast[0].precipitation_probability is not none %}<div class="stat">{{ forecast[0].precipitation_probability }}% pop</div>{% endif %}
+      </div>
+
+      {% if forecast | length > 1 %}
+        <div class="label">Days</div>
+        {%- set later = forecast[1:] %}
+        {%- for day in later %}<div class="box fday" style="width: {{ width(later | length, loop.index0, config.forecast_per_line | default(6)) }}">
+          <div class="k">{{ day.datetime | dayfmt }}</div>
+          <div class="c">{% if day.precipitation_probability is not none %}<span class="pop">{{ day.precipitation_probability }}% pop</span>{% endif %}{{ cond.get(day.condition, day.condition) }}</div>
+          <div class="v">{{ day.temperature }}{{ unit }} / {{ day.templow }}{{ unit }}</div>
+        </div>{%- endfor %}
+      {% endif %}
+    {% endif %}
+
+    {% if events %}
+      <div class="label">Calendar</div>
+      {# line budget: whole days only, so a busy day never truncates and later days drop #}
+      {% set budget = config.calendar_lines | default(14) %}
+      {% set used = namespace(lines=0, hidden_days=0, hidden_events=0) %}
+      {% for day in days.list %}
+        {% set cost = namespace(v=1) %}
+        {% for event in day.events %}
+          {% if event.start.date %}
+            {% set cost.v = cost.v + 0.35 %}
+          {% else %}
+            {% set cost.v = cost.v + (1.6 if event.summary | length > 28 else 1) %}
+          {% endif %}
+        {% endfor %}
+        {% if used.lines == 0 or used.lines + cost.v <= budget %}
+          {% set used.lines = used.lines + cost.v %}
+          <div class="day">
+            <div class="bar">{{ datefmt(day.date) }}</div>
+            <div class="body">
+              {% set allday = day.events | selectattr('start.date') | list %}
+              {% if allday %}<div class="all">{{ allday | map(attribute='summary') | join(' · ') }}</div>{% endif %}
+              {% set timed = day.events | rejectattr('start.date') | list %}
+              {% if timed %}
+                <table class="ev">
+                  {% for event in timed %}
+                    <tr>
+                      <td class="tm">{{ event.start.dateTime[11:16] }}</td>
+                      <td>{{ event.summary }}</td>
+                    </tr>
+                  {% endfor %}
+                </table>
+              {% endif %}
+            </div>
+          </div>
+        {% else %}
+          {% set used.hidden_days = used.hidden_days + 1 %}
+          {% set used.hidden_events = used.hidden_events + day.events | length %}
+        {% endif %}
       {% endfor %}
-    </table>
-  {% endif %}
+      {% if used.hidden_days %}<p class="more">+ {{ used.hidden_days }} day{{ 's' if used.hidden_days != 1 }} · {{ used.hidden_events }} event{{ 's' if used.hidden_events != 1 }}</p>{% endif %}
+    {% endif %}
 
-  {% if config.sensors %}
-    <h2>Indoor</h2>
-    <table>
-      {% for sensor in config.sensors %}
-        <tr>
-          <td>{{ sensor.name }}</td>
-          <td>{{ states.get(sensor.temperature).state }}°C</td>
-          <td>{{ states.get(sensor.humidity).state }}%</td>
-        </tr>
-      {% endfor %}
-    </table>
-  {% endif %}
+    {% if config.sensors %}
+      <div class="label">Indoor</div>
+      {%- set rooms = [] %}
+      {%- for sensor in config.sensors %}
+        {%- set temp = states.get(sensor.temperature) %}
+        {%- set hum = states.get(sensor.humidity) %}
+        {%- if temp or hum %}{%- set _ = rooms.append({'sensor': sensor, 'temp': temp, 'hum': hum}) %}{% endif %}
+      {%- endfor %}
+      {%- for room in rooms %}<div class="box room" style="width: {{ width(rooms | length, loop.index0, config.sensors_per_line | default(4)) }}">
+        <div class="k">{{ room.sensor.name }}</div>
+        <div class="v">{% if room.temp %}{{ room.temp.state }}{{ room.temp.attributes.get('unit_of_measurement') or '°C' }}{% endif %}{% if room.hum %} <span class="sub">{{ room.hum.state }}{{ room.hum.attributes.get('unit_of_measurement') or '%' }} rh</span>{% endif %}</div>
+      </div>{%- endfor %}
+    {% endif %}
 
-  {% if events %}
-    <h2>Calendar</h2>
-    <table>
-      {% for event in events %}
-        <tr>
-          <td>{{ (event.start.dateTime or event.start.date) | dayfmt }}</td>
-          <td>{{ event.summary }}</td>
-        </tr>
-      {% endfor %}
-    </table>
-  {% endif %}
-
-  <p class="updated">last updated: {{ now.strftime("%Y-%m-%d %H:%M:%S") }}</p>
+    <p class="updated">{{ now.strftime("%Y-%m-%d %H:%M:%S") }}</p>
+  </div>
 </body>
 </html>
