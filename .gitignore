@@ -14,3 +14,4 @@ uv.lock
 .env
 .python-version
 config.json
+image.*

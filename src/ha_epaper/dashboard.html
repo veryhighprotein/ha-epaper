@@ -6,13 +6,27 @@
   <meta http-equiv="refresh" content="{{ refresh_seconds }}">
   <title>{{ config.title }}</title>
   <style>
-    /* monochrome, em-scaled, legacy-safe: no flexbox, grid, gap, custom properties or media queries */
+    /* Legacy-safe for the reader's stock browser: no flexbox, grid, viewport units,
+       calc, media queries or object-fit. Monochrome and em-scaled. */
     html, body { height: 100%; }
     body { font-family: sans-serif; font-size: {{ config.font_size }}; color: #000; background: #fff; margin: 0; }
-    /* border-box makes min-height include the padding, so the wrap is exactly one screen tall */
-    .wrap { max-width: {{ config.max_width | default('40em') }}; margin: 0 auto; padding: 0.6em 0.5% 2.4em;
-            -webkit-box-sizing: border-box; box-sizing: border-box; min-height: 100%;
-            position: relative; }
+
+    /* The page is a table one screen tall: content and footer are pinned to their
+       natural height by the 1% trick, so the image row takes the leftover space. */
+    .wrap, .box { -webkit-box-sizing: border-box; box-sizing: border-box; }
+    .wrap { max-width: {{ config.max_width | default('40em') }}; margin: 0 auto; padding: 0.6em 0.5%; height: 100%; }
+    table.page { border-collapse: collapse; width: 100%; height: 100%; }
+    table.page td { vertical-align: top; padding: 0; }
+    table.page td.content { height: 1%; }
+    table.page td.foot { font-size: 0.6em; }
+    table.page td.foot div { border-top: 1px solid #000; margin: 0 0.5%; padding-top: 0.35em; }
+    table.page td.fill, table.page td.shot { height: 100%; }
+    table.page td.shot { padding: 0 0.5%; }
+
+    /* Framed blocks share one border; every block shares the boxes' 0.5% outer
+       margin, so all rows have the same left and right edge. */
+    .hero, .box, .day, td.shot img { border: 1px solid #000; -webkit-border-radius: 3px; border-radius: 3px; }
+    .head, .hero, .day, .label, .more { margin-left: 0.5%; margin-right: 0.5%; }
 
     .head { border-bottom: 1px solid #000; padding-bottom: 0.35em; }
     /* one size and line box for both, so the floated date sits on the title's centre */
@@ -21,31 +35,29 @@
 
     .label { font-size: 0.6em; text-transform: uppercase; letter-spacing: 0.14em; margin: 0.7em 0 0.2em; }
 
-    /* weather hero: temp over condition on the left, hi/lo centred, rh and pop right */
-    .hero { border: 1px solid #000; -webkit-border-radius: 3px; border-radius: 3px; padding: 0.28em 0.55em; margin-top: 0.6em; }
-    .hero .now { display: inline-block; vertical-align: middle; width: 32%; min-width: 7.5em; }
+    /* weather hero: temp over condition left, hi/lo centred, rh and pop right */
+    .hero { padding: 0.28em 0.55em; margin-top: 0.6em; }
+    .hero .now, .hero .range, .hero .stat { display: inline-block; vertical-align: middle; }
+    .hero .now { width: 32%; min-width: 7.5em; }
+    .hero .range { text-align: center; width: 26%; min-width: 7em; }
+    .hero .stat { text-align: right; width: 16%; min-width: 5em; }
     .hero .temp { font-size: 1.85em; line-height: 1.05; }
     .hero .cond { font-size: 0.68em; text-transform: uppercase; letter-spacing: 0.1em; }
-    .hero .range { display: inline-block; vertical-align: middle; text-align: center; width: 26%; min-width: 7em; }
-    .hero .stat { display: inline-block; vertical-align: middle; text-align: right; width: 16%; min-width: 5em; }
 
-    /* boxes: width is set per row in the template, so a row always fills the measure
-       whatever its count; min-width makes them wrap onto more rows without media queries */
-    .box { display: inline-block; vertical-align: top; margin: 0 0.5% 0.3em 0.5%;
-           -webkit-box-sizing: border-box; box-sizing: border-box;
-           border: 1px solid #000; -webkit-border-radius: 3px; border-radius: 3px; padding: 0.2em 0.4em; }
+    /* Boxes get their width from the template, so a row always fills the measure;
+       min-width wraps them onto more rows without media queries. */
+    .box { display: inline-block; vertical-align: top; margin: 0 0.5% 0.3em 0.5%; padding: 0.2em 0.4em; }
     .box.room { min-width: 8em; }
     .box.fday { min-width: 5.8em; }
     .box .k { font-size: 0.55em; text-transform: uppercase; letter-spacing: 0.08em; }
-    /* overflow hidden contains the right-floated pop without a clearfix */
-    .box .c { font-size: 0.78em; overflow: hidden; }
+    .box .c { font-size: 0.78em; overflow: hidden; } /* contains the right-floated pop */
     .box .pop { float: right; font-size: 0.6em; }
     .box .v { font-size: 0.95em; }
     .box.fday .v { font-size: 0.82em; }
     .box .sub { font-size: 0.6em; }
 
-    /* calendar: inverted day bar, all-day events chained inline, timed events as aligned rows */
-    .day { border: 1px solid #000; -webkit-border-radius: 3px; border-radius: 3px; margin: 0 0 0.3em; overflow: hidden; }
+    /* calendar: inverted day bar, all-day events chained inline, timed events as rows */
+    .day { margin: 0 0.5% 0.3em; overflow: hidden; }
     .day .bar { background: #000; color: #fff; font-size: 0.5em; text-transform: uppercase; letter-spacing: 0.12em; padding: 0.08em 0.4em; }
     .day .body { padding: 0.1em 0.4em; }
     .day .all { font-size: 0.78em; }
@@ -54,11 +66,14 @@
     table.ev td.tm { width: 2.8em; }
     .more { font-size: 0.6em; letter-spacing: 0.06em; }
 
-    /* every block shares the boxes' 0.5% outer margin, so all rows have one left and right edge */
-    .head, .hero, .day, .label, .more { margin-left: 0.5%; margin-right: 0.5%; }
-
-    /* absolute, not fixed: Android 2.x WebKit treats position: fixed as static */
-    .updated { position: absolute; bottom: 0.6em; left: 1%; right: 1%; font-size: 0.6em; border-top: 1px solid #000; padding-top: 0.35em; margin: 0; }
+    /* The image row takes all remaining height. The image is scaled to fit it whole:
+       insets plus auto margins centre it, max-width/max-height keep the aspect ratio, so
+       nothing is cropped whatever the uploaded shape. The border is on the image, so the
+       leftover space is margin rather than an empty box. */
+    td.shot .shot { position: relative; height: 100%; min-height: 4em; }
+    td.shot img { -webkit-box-sizing: border-box; box-sizing: border-box;
+                  position: absolute; left: 0; right: 0; top: 0; bottom: 0; margin: auto;
+                  max-width: 100%; max-height: 100%; }
   </style>
 </head>
 <body>
@@ -70,34 +85,40 @@
     'lightning': 'Stormy', 'windy': 'Windy', 'windy-variant': 'Windy', 'exceptional': 'Exceptional'
   } %}
 
-  {# ISO date -> "Fri 13 Nov", matching the header. dayfmt supplies the weekday #}
+  {# ISO date -> "Fri 13 Nov"; dayfmt supplies the weekday #}
   {% set months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] %}
   {% macro datefmt(d) -%}
-    {%- set p = d.split('-') -%}
-    {{ (d | dayfmt)[:3] }} {{ p[2] | int }} {{ months[p[1] | int - 1] }}
+    {{ (d | dayfmt)[:3] }} {{ d[8:] | int }} {{ months[d[5:7] | int - 1] }}
   {%- endmacro %}
 
-  {# width of a box in a row of at most max_per. A single row fills the measure;
-     a partial row after a full one keeps the full-row unit width instead of stretching #}
-  {% macro width(total, index0, max_per) -%}
-    {%- set per = [total, max_per] | min -%}
-    {%- set n = [per, total - (index0 // per) * per] | min -%}
-    {%- if total > max_per and n < per %}{%- set n = per %}{% endif -%}
-    {{ (100 / n - 1) | round(3) }}%
+  {# Width of a box in a row of at most per_max, margins included. Every row uses the
+     same unit width, so a partial row after a full one keeps it instead of stretching. #}
+  {% macro boxwidth(total, per_max) -%}
+    {{ (100 / [total, per_max] | min - 1) | round(3) }}%
   {%- endmacro %}
 
-  {# group events chronologically by day #}
+  {# Line cost of a day: 1 for the bar, 0.35 per all-day event, 1 per timed event,
+     1.6 when its summary is long enough to wrap. #}
+  {% macro cost(events) -%}
+    {%- set lines = namespace(v=1) -%}
+    {%- for event in events -%}
+      {%- set lines.v = lines.v + (0.35 if event.start.date else 1.6 if event.summary | length > 28 else 1) -%}
+    {%- endfor -%}
+    {{ lines.v }}
+  {%- endmacro %}
+
+  {# events are chronological, so consecutive ones share a day #}
   {% set days = namespace(list=[]) %}
   {% for event in events %}
-    {% set key = (event.start.dateTime or event.start.date)[:10] %}
-    {% if days.list and days.list[-1].date == key %}
-      {% set _ = days.list[-1].events.append(event) %}
-    {% else %}
-      {% set _ = days.list.append({'date': key, 'events': [event]}) %}
-    {% endif %}
+    {% set date = (event.start.dateTime or event.start.date)[:10] %}
+    {% if loop.changed(date) %}{% set _ = days.list.append({'date': date, 'events': []}) %}{% endif %}
+    {% set _ = days.list[-1].events.append(event) %}
   {% endfor %}
 
   <div class="wrap">
+    <table class="page">
+      <tr><td class="content">
+
     <div class="head">
       <span class="date">{{ now.strftime("%a %d %b %Y") }}</span>
       <span class="title">{{ config.title }}</span>
@@ -110,10 +131,11 @@
       {% set current = attrs.get('current_temperature') or attrs.get('current_temp') or attrs.get('temperature') %}
       {% set humidity = attrs.get('humidity') %}
       {% set unit = attrs.get('temperature_unit') or '°' %}
+      {% set condition = weather.state if weather else forecast[0].condition %}
       <div class="hero">
         <div class="now">
           <div class="temp">{{ current if current is not none else forecast[0].temperature }}{{ unit }}</div>
-          <div class="cond">{{ cond.get(weather.state, weather.state) if weather else cond.get(forecast[0].condition, forecast[0].condition) }}</div>
+          <div class="cond">{{ cond.get(condition, condition) }}</div>
         </div>
         <div class="range">{{ forecast[0].temperature }}{{ unit }} / {{ forecast[0].templow }}{{ unit }}</div>
         {% if humidity is not none %}<div class="stat">{{ humidity }}% rh</div>{% endif %}
@@ -123,7 +145,8 @@
       {% if forecast | length > 1 %}
         <div class="label">Days</div>
         {%- set later = forecast[1:] %}
-        {%- for day in later %}<div class="box fday" style="width: {{ width(later | length, loop.index0, config.forecast_per_line | default(6)) }}">
+        {%- set per = config.forecast_per_line | default(6) %}
+        {%- for day in later %}<div class="box fday" style="width: {{ boxwidth(later | length, per) }}">
           <div class="k">{{ day.datetime | dayfmt }}</div>
           <div class="c">{% if day.precipitation_probability is not none %}<span class="pop">{{ day.precipitation_probability }}% pop</span>{% endif %}{{ cond.get(day.condition, day.condition) }}</div>
           <div class="v">{{ day.temperature }}{{ unit }} / {{ day.templow }}{{ unit }}</div>
@@ -133,20 +156,13 @@
 
     {% if events %}
       <div class="label">Calendar</div>
-      {# line budget: whole days only, so a busy day never truncates and later days drop #}
+      {# whole days only within the line budget, so a busy day never truncates #}
       {% set budget = config.calendar_lines | default(14) %}
       {% set used = namespace(lines=0, hidden_days=0, hidden_events=0) %}
       {% for day in days.list %}
-        {% set cost = namespace(v=1) %}
-        {% for event in day.events %}
-          {% if event.start.date %}
-            {% set cost.v = cost.v + 0.35 %}
-          {% else %}
-            {% set cost.v = cost.v + (1.6 if event.summary | length > 28 else 1) %}
-          {% endif %}
-        {% endfor %}
-        {% if used.lines == 0 or used.lines + cost.v <= budget %}
-          {% set used.lines = used.lines + cost.v %}
+        {% set lines = cost(day.events) | float %}
+        {% if used.lines == 0 or used.lines + lines <= budget %}
+          {% set used.lines = used.lines + lines %}
           <div class="day">
             <div class="bar">{{ datefmt(day.date) }}</div>
             <div class="body">
@@ -156,10 +172,7 @@
               {% if timed %}
                 <table class="ev">
                   {% for event in timed %}
-                    <tr>
-                      <td class="tm">{{ event.start.dateTime[11:16] }}</td>
-                      <td>{{ event.summary }}</td>
-                    </tr>
+                    <tr><td class="tm">{{ event.start.dateTime[11:16] }}</td><td>{{ event.summary }}</td></tr>
                   {% endfor %}
                 </table>
               {% endif %}
@@ -181,13 +194,26 @@
         {%- set hum = states.get(sensor.humidity) %}
         {%- if temp or hum %}{%- set _ = rooms.append({'sensor': sensor, 'temp': temp, 'hum': hum}) %}{% endif %}
       {%- endfor %}
-      {%- for room in rooms %}<div class="box room" style="width: {{ width(rooms | length, loop.index0, config.sensors_per_line | default(4)) }}">
+      {%- set per = config.sensors_per_line | default(4) %}
+      {%- for room in rooms %}<div class="box room" style="width: {{ boxwidth(rooms | length, per) }}">
         <div class="k">{{ room.sensor.name }}</div>
         <div class="v">{% if room.temp %}{{ room.temp.state }}{{ room.temp.attributes.get('unit_of_measurement') or '°C' }}{% endif %}{% if room.hum %} <span class="sub">{{ room.hum.state }}{{ room.hum.attributes.get('unit_of_measurement') or '%' }} rh</span>{% endif %}</div>
       </div>{%- endfor %}
     {% endif %}
 
-    <p class="updated">{{ now.strftime("%Y-%m-%d %H:%M:%S") }}</p>
+      </td></tr>
+
+      {# Uploaded via /upload and served same-origin at /image. image_available is false
+         when nothing has been uploaded yet: the filler row then takes the leftover height,
+         so the footer stays at the bottom instead of floating mid-page. #}
+      {% if image_available %}
+        <tr><td class="shot"><div class="shot"><img src="/image" alt="{{ config.title }}"></div></td></tr>
+      {% else %}
+        <tr><td class="fill"></td></tr>
+      {% endif %}
+
+      <tr><td class="foot"><div>{{ now.strftime("%Y-%m-%d %H:%M:%S") }}</div></td></tr>
+    </table>
   </div>
 </body>
 </html>

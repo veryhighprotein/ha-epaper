@@ -9,9 +9,10 @@ from urllib.parse import quote
 from aiohttp import ClientSession, web
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-HA_URL = os.environ.get("HA_URL").rstrip("/")
-HA_TOKEN = os.environ.get("HA_TOKEN","")
+HA_URL = os.environ.get("HA_URL", "").rstrip("/")
+HA_TOKEN = os.environ.get("HA_TOKEN", "")
 PORT = os.environ.get("PORT", "8080")
+IMAGES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 
 
 async def client_context(app):
@@ -20,6 +21,38 @@ async def client_context(app):
     ) as session:
         app["ha"] = session
         yield
+
+
+async def image(request):
+    file = next(Path(".").glob("image.*"), None)
+    if file is None:
+        raise web.HTTPNotFound
+    return web.FileResponse(file)
+
+
+async def upload(request):
+    """Replace the dashboard image with the uploaded one, or delete it on clear."""
+    form = await request.post()
+    new = form.get("image")
+    if "clear" in form:
+        target = None
+    else:
+        suffix = Path(new.filename).suffix.lower() if new else ""
+        if suffix not in IMAGES:
+            raise web.HTTPBadRequest(text="no image")
+        target = Path(f"image{suffix}")
+    for file in Path(".").glob("image.*"):
+        file.unlink()
+    if target:
+        target.write_bytes(new.file.read())
+    return web.HTTPSeeOther("/")
+
+
+async def upload_form(request):
+    html = request.app["templates"].get_template("upload.html").render(
+        config=request.app["config"]
+    )
+    return web.Response(text=html, content_type="text/html")
 
 
 async def page(request):
@@ -56,12 +89,13 @@ async def page(request):
             data = await response.json()
         forecast = data["service_response"][weather]["forecast"][:forecast_days]
 
-    html = request.app["templates"].get_template("page.html").render(
+    html = request.app["templates"].get_template("dashboard.html").render(
         config=config,
         states=states,
         events=events,
         forecast=forecast,
         now=now,
+        image_available=any(Path(".").glob("image.*")),
         refresh_seconds=int(config.get("refresh_minutes", 30)) * 60,
     )
     return web.Response(text=html, content_type="text/html")
@@ -84,4 +118,7 @@ def main() -> None:
     app["templates"].filters["dayfmt"] = lambda v: datetime.fromisoformat(v).strftime("%a %d.%m")
     app.cleanup_ctx.append(client_context)
     app.router.add_get("/", page)
+    app.router.add_get("/image", image)
+    app.router.add_get("/upload", upload_form)
+    app.router.add_post("/upload", upload)
     web.run_app(app, host="0.0.0.0", port=int(PORT))
