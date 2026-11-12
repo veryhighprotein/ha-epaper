@@ -1,0 +1,233 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="{{ refresh_seconds }}">
+  <title>{{ config.title }}</title>
+  <style>
+    /* Target: Tolino Shine, Android 2.3 stock browser (WebKit 533): CSS 2.1 plus
+       border-radius and box-sizing. No flexbox, grid, calc, vw/vh, rem or custom
+       properties. Every row is a fixed-layout table, so boxes cannot overflow.
+       E-ink: pure black on white, 2px borders, nothing under 0.7em, bold for small text.
+       scripts/preview.py lints this block against those rules. */
+    * { -webkit-box-sizing: border-box; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; background: #fff; color: #000; font-family: sans-serif; line-height: 1.25;
+           font-size: {{ config.font_size | default('24px') }}; -webkit-text-size-adjust: 100%; }
+
+    /* The page is one screen tall: content and footer take their natural height (the
+       1% trick), the image row (or filler) takes the rest. */
+    .wrap { max-width: {{ config.max_width | default('40em') }}; height: 100%; margin: 0 auto; padding: 0.5em 0.4em; }
+    table.page { width: 100%; height: 100%; border-collapse: separate; border-spacing: 0; }
+    table.page > tbody > tr > td { padding: 0; vertical-align: top; }
+    td.top { height: 1%; }
+    td.fill { height: 100%; }
+    td.foot { font-size: 0.7em; }
+    td.foot div { border-top: 2px solid #000; padding-top: 0.3em; }
+
+    /* One look for every framed block. */
+    .card, td.box, td.shot img { border: 2px solid #000; -webkit-border-radius: 0.3em; border-radius: 0.3em; }
+
+    .head { width: 100%; border-collapse: collapse; border-bottom: 2px solid #000; }
+    .head td { padding: 0 0 0.3em; font-size: 1.1em; }
+    .head td.date { text-align: right; font-size: 1em; letter-spacing: 0.05em; }
+    .head td.title { font-weight: bold; }
+
+    .label { margin: 0.8em 0 0.3em; font-size: 0.7em; font-weight: bold; text-transform: uppercase; letter-spacing: 0.12em; }
+
+    .hero { margin-top: 0.6em; padding: 0.3em 0.5em; }
+    .hero table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+    .hero td { vertical-align: middle; font-size: 0.85em; }
+    .hero td.now { width: 34%; font-size: 1em; }
+    .hero td.range { text-align: center; }
+    .hero td.stat { width: 20%; text-align: right; }
+    .hero .temp { font-size: 2em; font-weight: bold; line-height: 1.1; }
+    .hero .cond { font-size: 0.75em; font-weight: bold; text-transform: uppercase; letter-spacing: 0.1em; }
+
+    /* A row of equal boxes. The wrapper's negative margin cancels the outer
+       border-spacing, so boxes line up with the cards and calendar. */
+    .row { margin: 0 -0.3em 0.1em; }
+    .row table { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0.3em 0; }
+    td.box { padding: 0.25em 0.35em; word-wrap: break-word; }
+    td.pad { padding: 0; }
+    .box .k { overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+              font-size: 0.7em; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; }
+    .box .v { font-weight: bold; }
+    .box .s { font-size: 0.7em; }
+    .fday .c { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 0.7em; }
+    .fday table.lo { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 0.7em; }
+    .fday table.lo td { padding: 0; white-space: nowrap; }
+    .fday table.lo td.temp { width: 65%; }
+    .fday table.lo td.pop { width: 35%; text-align: right; font-size: 0.9em; }
+    .room .v { font-size: 1.2em; }
+    .room .s { font-size: 0.75em; }
+
+    .day { margin-bottom: 0.3em; overflow: hidden; }
+    .day .bar { padding: 0.1em 0.5em; background: #000; color: #fff;
+                font-size: 0.7em; font-weight: bold; text-transform: uppercase; letter-spacing: 0.1em; }
+    .day .body { padding: 0.1em 0.5em; }
+    .day .all { font-size: 0.85em; }
+    table.ev { width: 100%; border-collapse: collapse; }
+    table.ev td { padding: 0.1em 0; vertical-align: top; font-size: 0.85em; }
+    table.ev td.tm { width: 3.5em; font-weight: bold; }
+    .more { margin: 0.2em 0; font-size: 0.7em; letter-spacing: 0.05em; }
+
+    /* The image is scaled to fit the leftover space whole: it is positioned against the
+       cell, not sized by a percentage height (unreliable inside table cells). */
+    td.shot { position: relative; height: 100%; border-top: 0.6em solid #fff; border-bottom: 0.6em solid #fff; }
+    td.shot img { position: absolute; top: 0; right: 0; bottom: 0; left: 0; margin: auto; max-width: 100%; max-height: 100%; }
+  </style>
+</head>
+<body>
+  {# HA weather condition enum -> human wording #}
+  {% set conditions = {
+    'sunny': 'Sunny', 'clear-night': 'Clear night', 'partlycloudy': 'Partly cloudy',
+    'cloudy': 'Cloudy', 'foggy': 'Foggy', 'rainy': 'Rainy', 'pouring': 'Heavy rain',
+    'snowy': 'Snowy', 'snowy-rainy': 'Snow / rain', 'hail': 'Hail',
+    'lightning': 'Stormy', 'windy': 'Windy', 'windy-variant': 'Windy', 'exceptional': 'Exceptional'
+  } %}
+  {# the same, short enough for one line in a forecast box #}
+  {% set short = {'partlycloudy': 'Part cloudy', 'clear-night': 'Clear', 'snowy-rainy': 'Sleet', 'exceptional': 'Extreme'} %}
+  {% set months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] %}
+
+  {# ISO date -> "Fri 13 Nov" #}
+  {% macro datefmt(d) -%}
+    {{ (d | dayfmt)[:3] }} {{ d[8:] | int }} {{ months[d[5:7] | int - 1] }}
+  {%- endmacro %}
+
+  {# Line cost of a day: 1 for the bar, 0.35 per all-day event, 1 per timed event,
+     1.6 when its summary is long enough to wrap. #}
+  {% macro cost(events) -%}
+    {%- set lines = namespace(v=1) -%}
+    {%- for event in events -%}
+      {%- set lines.v = lines.v + (0.35 if event.start.date else 1.6 if event.summary | length > 28 else 1) -%}
+    {%- endfor -%}
+    {{ lines.v }}
+  {%- endmacro %}
+
+  {# Rows of at most `per` boxes. A short last row is padded with empty cells so every
+     box keeps the same width. The caller renders one box from each item. #}
+  {% macro grid(items, per, kind) -%}
+    {%- for line in items | batch(per) %}
+      <div class="row"><table><tr>
+        {%- for item in line %}<td class="box {{ kind }}">{{ caller(item) }}</td>{% endfor %}
+        {%- for _ in range(per - line | length) %}<td class="pad"></td>{% endfor -%}
+      </tr></table></div>
+    {%- endfor %}
+  {%- endmacro %}
+
+  {# events are chronological, so consecutive ones share a day #}
+  {% set days = namespace(list=[]) %}
+  {% for event in events %}
+    {% set date = (event.start.dateTime or event.start.date)[:10] %}
+    {% if loop.changed(date) %}{% set _ = days.list.append({'date': date, 'events': []}) %}{% endif %}
+    {% set _ = days.list[-1].events.append(event) %}
+  {% endfor %}
+
+  <div class="wrap">
+    <table class="page">
+      <tr><td class="top">
+
+        <table class="head"><tr>
+          <td class="title">{{ config.title }}</td>
+          <td class="date">{{ now.strftime("%a %d %b %Y") }}</td>
+        </tr></table>
+
+        {% if forecast %}
+          {% set weather = states.get(config.weather) %}
+          {% set attrs = weather.attributes if weather else {} %}
+          {# integrations differ on the attribute name for the observed temperature #}
+          {% set current = attrs.get('current_temperature') or attrs.get('current_temp') or attrs.get('temperature') %}
+          {% set humidity = attrs.get('humidity') %}
+          {% set unit = attrs.get('temperature_unit') or '°' %}
+          {% set condition = weather.state if weather else forecast[0].condition %}
+          {% set today = forecast[0] %}
+          <div class="card hero"><table><tr>
+            <td class="now">
+              <div class="temp">{{ current if current is not none else today.temperature }}{{ unit }}</div>
+              <div class="cond">{{ conditions.get(condition, condition) }}</div>
+            </td>
+            <td class="range">{{ today.temperature }}{{ unit }} / {{ today.templow }}{{ unit }}</td>
+            <td class="stat">
+              {% if humidity is not none %}<div>{{ humidity }}% rh</div>{% endif %}
+              {% if today.precipitation_probability is not none %}<div>{{ today.precipitation_probability }}% pop</div>{% endif %}
+            </td>
+          </tr></table></div>
+
+          {% if forecast | length > 1 %}
+            <div class="label">Days</div>
+            {% call(day) grid(forecast[1:], config.forecast_per_line | default(6), 'fday') %}
+              <div class="k">{{ day.datetime | dayfmt }}</div>
+              <div class="c">{{ short.get(day.condition) or conditions.get(day.condition, day.condition) }}</div>
+              <div class="v">{{ day.temperature }}{{ unit }}</div>
+              <table class="lo"><tr>
+                <td class="temp">{{ day.templow }}{{ unit }}</td>
+                <td class="pop">{% if day.precipitation_probability is not none %}{{ day.precipitation_probability }}%{% endif %}</td>
+              </tr></table>
+            {% endcall %}
+          {% endif %}
+        {% endif %}
+
+        {% if events %}
+          <div class="label">Calendar</div>
+          {# whole days only within the line budget, so a busy day never truncates #}
+          {% set budget = config.calendar_lines | default(14) %}
+          {% set used = namespace(lines=0, hidden_days=0, hidden_events=0) %}
+          {% for day in days.list %}
+            {% set lines = cost(day.events) | float %}
+            {% if used.lines == 0 or used.lines + lines <= budget %}
+              {% set used.lines = used.lines + lines %}
+              <div class="card day">
+                <div class="bar">{{ datefmt(day.date) }}</div>
+                <div class="body">
+                  {% set allday = day.events | selectattr('start.date') | list %}
+                  {% if allday %}<div class="all">{{ allday | map(attribute='summary') | join(' · ') }}</div>{% endif %}
+                  {% set timed = day.events | rejectattr('start.date') | list %}
+                  {% if timed %}
+                    <table class="ev">
+                      {% for event in timed %}
+                        <tr><td class="tm">{{ event.start.dateTime[11:16] }}</td><td>{{ event.summary }}</td></tr>
+                      {% endfor %}
+                    </table>
+                  {% endif %}
+                </div>
+              </div>
+            {% else %}
+              {% set used.hidden_days = used.hidden_days + 1 %}
+              {% set used.hidden_events = used.hidden_events + day.events | length %}
+            {% endif %}
+          {% endfor %}
+          {% if used.hidden_days %}<div class="more">+ {{ used.hidden_days }} day{{ 's' if used.hidden_days != 1 }} · {{ used.hidden_events }} event{{ 's' if used.hidden_events != 1 }}</div>{% endif %}
+        {% endif %}
+
+        {% set rooms = [] %}
+        {% for sensor in config.sensors %}
+          {% set temp = states.get(sensor.temperature) %}
+          {% set hum = states.get(sensor.humidity) %}
+          {% if temp or hum %}{% set _ = rooms.append({'name': sensor.name, 'temp': temp, 'hum': hum}) %}{% endif %}
+        {% endfor %}
+        {% if rooms %}
+          <div class="label">Indoor</div>
+          {% call(room) grid(rooms, config.sensors_per_line | default(4), 'room') %}
+            <div class="k">{{ room.name }}</div>
+            <div class="v">{% if room.temp %}{{ room.temp.state }}{{ room.temp.attributes.get('unit_of_measurement') or '°C' }}{% else %}&nbsp;{% endif %}</div>
+            <div class="s">{% if room.hum %}{{ room.hum.state }}{{ room.hum.attributes.get('unit_of_measurement') or '%' }} rh{% else %}&nbsp;{% endif %}</div>
+          {% endcall %}
+        {% endif %}
+
+      </td></tr>
+
+      {# Uploaded via /upload, served same-origin at /image. Without an image the filler
+         row takes the leftover height, so the footer stays at the bottom. #}
+      {% if image_available %}
+        <tr><td class="shot"><img src="/image" alt=""></td></tr>
+      {% else %}
+        <tr><td class="fill"></td></tr>
+      {% endif %}
+
+      <tr><td class="foot"><div>{{ now.strftime("%Y-%m-%d %H:%M:%S") }}</div></td></tr>
+    </table>
+  </div>
+</body>
+</html>
